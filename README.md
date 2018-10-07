@@ -39,14 +39,14 @@ below.
 
 | Region | Launch Template |
 | ------------- | ------------- |
-| **N. Virginia** (us-east-1) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=us-east-1/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar-workshop.yaml) |
-| **Oregon** (us-west-2) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=us-west-2/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar-workshop.yaml) |
-| **Tokyo** (ap-northeast-1) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-1/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar-workshop.yaml) |
+| **N. Virginia** (us-east-1) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=us-east-1/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar/donkeycar-workshop.yaml) |
+| **Oregon** (us-west-2) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=us-west-2/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar/donkeycar-workshop.yaml) |
+| **Tokyo** (ap-northeast-1) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-1/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar/donkeycar-workshop.yaml) |
 
 Once the stack is created, status is **CREATE_COMPLETE**, you can find the _AWS IoT Endpoint URL_
-under the **Outputs** tab.
+under the **Outputs** tab. Save this value as we will need it later when configuring our donkeycar.
 
-
+<img src="images/cfn-output.png">
 
 ## Configuring your Donkeycar
 

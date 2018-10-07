@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  This template sets up the resources required for building self-driving donkeycars.
+
+Parameters:
+  TemplateBucket:
+    Type: String
+    Default: khk-us-east-1
+    Description: Bucket containing code used by this template
+
+  CodeKey:
+    Type: String
+    Default: sagemaker/donkeycar/donkey-iot-ingest.zip
+
+Resources:
+  Donkeycar:
+    Type: AWS::IoT::Thing
+
+  DynamoDBTelemetryRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      TopicRulePayload:
+        RuleDisabled: false
+        Sql: SELECT * FROM 'AutonomousVehicles/#'
+        Actions:
+          - DynamoDBv2:
+              PutItem:
+                TableName: !Ref DynamoDBTelemetryTable
+              RoleArn: !GetAtt DynamoDBTelemetryRole.Arn
+
+  DynamoDBTelemetryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - iot.amazonaws.com
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt DynamoDBTelemetryTable.Arn
+
+  DynamoDBTelemetryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: vehicleID
+          AttributeType: S
+        - AttributeName: time
+          AttributeType: S
+      KeySchema:
+        - AttributeName: vehicleID
+          KeyType: HASH
+        - AttributeName: time
+          KeyType: RANGE
+      ProvisionedThroughput: 
+        ReadCapacityUnits: "5"
+        WriteCapacityUnits: "5"
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  IngestionLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ImportCode
+    Properties:
+      Handler: donkey-iot-ingest
+      Role: !GetAtt IngestionLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LocalBucket
+        S3Key: Archive.zip
+      Environment:
+        Variables:
+          TARGET_BUCKET: !Ref S3TelemetryData
+      Runtime: go1.x
+      Timeout: 60
+
+  IngestionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:GetShardIterator"
+                  - "dynamodb:DescribeStream"
+                  - "dynamodb:GetRecords"
+                Resource: !GetAtt DynamoDBTelemetryTable.StreamArn
+              - Effect: Allow
+                Action: "dynamodb:ListStreams"
+                Resource: "*"
+              - Effect: Allow
+                Action: "s3:PutObject"
+                Resource: !GetAtt S3TelemetryData.Arn
+
+  IngestionLambdaSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      Enabled: true
+      EventSourceArn: !GetAtt DynamoDBTelemetryTable.StreamArn
+      FunctionName: !Ref IngestionLambda
+      StartingPosition: TRIM_HORIZON
+
+  S3TelemetryData:
+    Type: AWS::S3::Bucket
+
+  ImportCode:
+    Properties:
+      ServiceToken: !GetAtt CopyS3ObjectsFunction.Arn
+      SourceBucket: !Ref TemplateBucket
+      SourcePrefix: !Ref CodeKey
+      LocalBucket: !Ref LocalBucket
+      #Prefix: !Ref CodeKey
+    Type: "Custom::S3Objects"
+
+  LocalBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+
+  S3CopyRole:
+    Type: AWS::IAM::Role
+    Properties:
+
+      Path: /assume/
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        -
+          PolicyName: S3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Sid: AllowLogging
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              -
+                Sid: SourceBucketReadAccess
+                Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::${TemplateBucket}"
+                  - !Sub "arn:aws:s3:::${TemplateBucket}/${CodeKey}"
+              -
+                Sid: DestBucketWriteAccess
+                Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:PutObjectVersionAcl"
+                  - "s3:DeleteObject"
+                  - "s3:DeleteObjectVersion"
+                  - "s3:CopyObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::${LocalBucket}"
+                  - !Sub "arn:aws:s3:::${LocalBucket}/*"
+
+  CopyS3ObjectsFunction:
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python2.7
+      Role: !GetAtt S3CopyRole.Arn
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import os
+          import json
+          import cfnresponse
+          import boto3
+          from botocore.exceptions import ClientError
+          client = boto3.client('s3')
+          import logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          def handler(event, context):
+            logger.info("Received event: %s" % json.dumps(event))
+            source_bucket = event['ResourceProperties']['SourceBucket']
+            source_prefix = event['ResourceProperties'].get('SourcePrefix') or ''
+            bucket = event['ResourceProperties']['LocalBucket']
+            prefix = event['ResourceProperties'].get('Prefix') or ''
+
+            result = cfnresponse.SUCCESS
+
+            try:
+              if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                result = copy_objects(source_bucket, source_prefix, bucket, prefix)
+              elif event['RequestType'] == 'Delete':
+                result = delete_objects(bucket, prefix)
+            except ClientError as e:
+              logger.error('Error: %s', e)
+              result = cfnresponse.FAILED
+
+            cfnresponse.send(event, context, result, {})
+
+
+          def copy_objects(source_bucket, source_prefix, bucket, prefix):
+            paginator = client.get_paginator('list_objects_v2')
+            page_iterator = paginator.paginate(Bucket=source_bucket, Prefix=source_prefix)
+            for key in {x['Key'] for page in page_iterator for x in page['Contents']}:
+              dest_key = os.path.join(prefix, os.path.relpath(key, source_prefix))
+              print 'copy {} to {}'.format(key, dest_key)
+              if not key.endswith('/'):
+                print 'copy {} to {}'.format(key, dest_key)
+                client.copy_object(CopySource={'Bucket': source_bucket, 'Key': key}, Bucket=bucket, Key = "Archive.zip")
+            return cfnresponse.SUCCESS
+
+          def delete_objects(bucket, prefix):
+            paginator = client.get_paginator('list_objects_v2')
+            page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
+            objects = [{'Key': x['Key']} for page in page_iterator for x in page['Contents']]
+            client.delete_objects(Bucket=bucket, Delete={'Objects': objects})
+            return cfnresponse.SUCCESS
+
+
+    Type: AWS::Lambda::Function
+
+  IotEndpointFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Get the AWS IoT Endpoint URL
+      Handler: index.handler
+      Runtime: python2.7
+      Role: !GetAtt IotEndpointFunctionRole.Arn
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          client = boto3.client('iot')
+
+          def handler(event, context):
+            logger.info("Received event: %s" % json.dumps(event))
+            endpoint = client.describe_endpoint()
+            responseData = { 'IotEndpointAddress': endpoint['endpointAddress'] }
+            result = cfnresponse.SUCCESS
+ 
+            cfnresponse.send(event, context, result, responseData)
+
+  IotEndpointFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: Allow
+                Action: "iot:DescribeEndpoint"
+                Resource: "*"
+
+  IotEndpoint:
+    Type: 'Custom::IotEndpoint'
+    Properties:
+      ServiceToken: !GetAtt IotEndpointFunction.Arn
+
+  Notebook:
+    Type: AWS::SageMaker::NotebookInstance
+    Properties:
+      InstanceType: ml.t2.medium
+      RoleArn: !GetAtt NotebookRole.Arn
+
+  NotebookRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "sagemaker.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies: 
+        - PolicyName: "root"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                Resource: !GetAtt S3TelemetryData.Arn
+
+Outputs:
+  IoTEndpointAddress:
+    Value: !GetAtt IotEndpoint.IotEndpointAddress
+
