@@ -44,7 +44,8 @@ below.
 | **Tokyo** (ap-northeast-1) | [<img src="images/deploy-to-aws.png">](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/new?stackName=donkeycar&templateURL=https://s3.amazonaws.com/khk-us-east-1/sagemaker/donkeycar/donkeycar-workshop.yaml) |
 
 Once the stack is created, status is **CREATE_COMPLETE**, you can find the _AWS IoT Endpoint URL_
-under the **Outputs** tab. Save this value as we will need it later when configuring our donkeycar.
+and _S3 Bucket Name_ under the **Outputs** tab. Save these values as we will need them later when
+configuring our donkeycar and training our model.
 
 <img src="images/cfn-output.png">
 
@@ -53,86 +54,95 @@ under the **Outputs** tab. Save this value as we will need it later when configu
 You will need to calibrate your car by following the instructions described in [Calibrate your
 car](http://docs.donkeycar.com/guide/calibrate/).
 
-### Setting up Donkeycar with AWS IoT
+### Connecting your donkeycar to AWS IoT
 
-Additional configuration for integration with AWS would 
+In your AWS Management Console, go to **Services** then **IoT Core**. In the navigation panel on the
+left, click **Manage** and **Things**. You should see a _Thing_ has been created for you.
+
+<img src="images/iot-things.png">
+
+Click onto the donkeycar item. Next, you will need to create a certificate for our donkeycar to
+connect to AWS IoT. To do that, click on **Security** on the navigation panel, and then click
+**Create certificate**.
+
+<img src="images/iot-certificates.png">
+
+After AWS IoT has created the certificates, you need to download all these certificates into your
+donkeycar. Click **Activate** to enable this certificate. Click **Attach a policy** to attach a
+policy so that our donkeycar has the right permission to access the platform.
+
+<img src="images/iot-certificates-2.png">
+
+Next, you will be asked to attach a policy to the certificate. The policy is already created for
+you. Click the checkbox and then click **Done**.
+
+<img src="images/iot-policy.png">
+
+You have now completed the setup on AWS, next you need to copy the certificates that you have
+downloaded to your donkeycar and update the _config.py_ file with the appropriate values.
 
 ```
 #AWS IOT
 IOT_ENABLED = True
 VEHICLE_ID = 'donkey'
-AWS_ENDPOINT = [replace with endpoint from AWS IoT console]
-CA_PATH = /home/pi/aws/ca.cert
-PRIVATE_KEY_PATH = /home/pi/aws/key.pem
-CERTIFICATE_PATH = /home/pi/aws/cert.pem
+AWS_ENDPOINT = <replace with endpoint from AWS IoT console>
+CA_PATH = <path to the root CA PEM file>
+PRIVATE_KEY_PATH = <path to the private key file>
+CERTIFICATE_PATH = <path to the certificate file>
 ```
 
+Save the changes and you are good to go.
 
 ## Collecting Data
 
+The first step in teaching your car to drive is laying out a track. After your track is ready,
+you’ll need to drive your car through its first round to start training its neural network. Feel
+free to use your creativity in the design, but make sure that you incorporate both left and right
+hand turns of various degrees to give your neural network exposure to many different situations.
+Keep in mind that your car uses its front facing camera to see the track you lay out, so you’ll need
+to make sure the tape is easily distinguishable from the floor. 
 
+Make sure you collect good data.
+
+1. Practice driving around the track a couple times without recording data.
+2. When you're confident you can drive 10 laps without mistake press Start Recording
+3. If you crash or run off the track press Stop Car immediately to stop recording. A little bad data 
+won't affect your autopilot.
+4. After you've collected 10-20 laps of good data (5-20k images) you can stop your car with Ctrl-c in
+the ssh session for your car.
+5. The data you've collected is sent to AWS and stored in your Amazon S3 bucket.
 
 ## Training the model with Amazon SageMaker
 
 Training the model with Amazon SageMaker
 
-The *SageMaker Python SDK* makes it easy to train and deploy ML models. In this notebook we train a
-model from data collected from the robocar.
+Amazon SageMaker makes it easy to train and deploy ML models. In your AWS Management Console, go to
+**Services** and **Amazon SageMaker**. Navigate to **Notebook Instances** on the left, we have
+created a notebook for you. Click **Open** to launch your notebook.
 
-### Setup the environment
+<img src="images/sagemaker-notebook.png">
 
-First we need to define a few variables that will be needed later. Here we specify a bucket to use
-and the role that will be used for working with SageMaker.
+Download the [notebook from here](notebook/donkeycar.ipynb) and upload to your notebook environment
+in Amazon SageMaker. After that click on the name _donkeycar.ipynb_ to open this notebook.
 
-```python
-import sagemaker as sage
-from time import gmtime, strftime
+In the notebook, you need to update the value of **data_location** to the name of your S3 bucket,
+which you can retrieve from the Outputs in CloudFormation.
 
-#Bucket with input data
-data_location = 's3://autonomous-vehicles'
+<img src="images/sagemaker-s3.png">
 
-#IAM execution role that gives SageMaker access to resources in your AWS account.
-#We can use the SageMaker Python SDK to get the role from our notebook environment. 
-role = sage.get_execution_role()
+After that, you can run the notebook by clicking **Cell** and **Run all**.
 
-#The session remembers our connection parameters to SageMaker. We'll use it to 
-#perform all of our SageMaker operations.
-sess = sage.Session()
-```
+<img src="images/notebook-run-all.png">
 
-### Create an estimator and fit the model
+## Download the model and deploy to robocar
 
-In order to use SageMaker to fit our algorithm, we'll create an Estimator that defines how to use
-the container to train. This includes the configuration we need to invoke SageMaker training:
+Amazon SageMaker saves the model to a S3 location. You can now download the model from S3 into your
+donkeycar and extract the contents from the tarball. This should give you a file named donkeycar.
 
-* The container name. This is constructed as in the shell commands above.
-* The role. As defined above.
-* The instance count which is the number of machines to use for training.
-* The instance type which is the type of machine to use for training.
-* The output path determines where the model artifact will be written.
-* The session is the SageMaker session object that we defined above. Then we use fit() on the
-  estimator to train against the data that we uploaded above.
-
-```python
-account = sess.boto_session.client('sts').get_caller_identity()['Account']
-region = sess.boto_session.region_name
-image = '{}.dkr.ecr.{}.amazonaws.com/donkey:latest'.format(account, region)
-
-tree = sage.estimator.Estimator(image,
-                       role, 1, 'ml.c5.2xlarge',
-                       output_path="s3://{}/output".format(sess.default_bucket()),
-                       sagemaker_session=sess)
-
-tree.fit(data_location)
-```
-
-Download the model and deploy to robocar
-
-Amazon SageMaker saves the model to a S3 location. You can now download the model from S3 into the Pi
-and extract the contents from the tarball. This should give you a file named donkeycar.
+<img src="images/download-model.png">
 
 ```
-$ curl -O [S3 location]
+$ curl -O <S3 location>
 $ tar -zxf model.tar.gz
 ```
 

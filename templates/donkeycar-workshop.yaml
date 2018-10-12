@@ -68,6 +68,19 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
+  DonkeycarPolicy:
+    Type: AWS::IoT::Policy
+    Properties: 
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: 
+              - "iot:*"
+            Resource: 
+              - "*"
+
   IngestionLambda:
     Type: AWS::Lambda::Function
     DependsOn: ImportCode
@@ -341,4 +354,7 @@ Resources:
 Outputs:
   IoTEndpointAddress:
     Value: !GetAtt IotEndpoint.IotEndpointAddress
-
+    Description: AWS IoT Endpoint address used for setting up connection from your donkeycar.
+  S3BucketName:
+    Value: !Ref S3TelemetryData
+    Description: Name of S3 bucket that stores telemetry data used to train ML model.
