@@ -86,9 +86,9 @@ downloaded to your donkeycar and update the _config.py_ file with the appropriat
 IOT_ENABLED = True
 VEHICLE_ID = 'donkey'
 AWS_ENDPOINT = <replace with endpoint from AWS IoT console>
-CA_PATH = <path to the root CA PEM file>
-PRIVATE_KEY_PATH = <path to the private key file>
-CERTIFICATE_PATH = <path to the certificate file>
+CA_PATH = os.path.join(CAR_PATH, '<path to the root CA PEM file>')
+PRIVATE_KEY_PATH = os.path.join(CAR_PATH, '<path to the private key file>')
+CERTIFICATE_PATH = os.path.join(CAR_PATH, '<path to the certificate file>')
 ```
 
 Save the changes and you are good to go.
