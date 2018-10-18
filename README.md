@@ -124,10 +124,12 @@ created a notebook for you. Click **Open** to launch your notebook.
 
 <img src="images/sagemaker-notebook.png">
 
-Download the [notebook from here](notebook/donkeycar.ipynb) and upload to your notebook environment
-in Amazon SageMaker. After that click on the name _donkeycar.ipynb_ to open this notebook.
+Download the [notebook from
+here](https://raw.githubusercontent.com/chankh/donkeycar-sagemaker/master/notebook/donkeycar.ipynb)
+and upload to your notebook environment in Amazon SageMaker. After that click on the name
+_donkeycar.ipynb_ to open this notebook.
 
-In the notebook, you need to update the value of **data_location** to the name of your S3 bucket,
+In the notebook, you need to update the value of `data_location` to the name of your S3 bucket,
 which you can retrieve from the Outputs in CloudFormation.
 
 <img src="images/sagemaker-s3.png">
