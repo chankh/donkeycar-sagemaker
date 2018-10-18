@@ -68,8 +68,10 @@ connect to AWS IoT. To do that, click on **Security** on the navigation panel, a
 <img src="images/iot-certificates.png">
 
 After AWS IoT has created the certificates, you need to download all these certificates into your
-donkeycar. Click **Activate** to enable this certificate. Click **Attach a policy** to attach a
-policy so that our donkeycar has the right permission to access the platform.
+donkeycar. For the root CA for AWS IoT, you will have to download **Amazon Root CA 1** since we are
+using Amazon Trusted Services Endpoint for connection. Click **Activate** to enable this certificate.
+Click **Attach a policy** to attach a policy so that our donkeycar has the right permission to access
+the platform.
 
 <img src="images/iot-certificates-2.png">
 

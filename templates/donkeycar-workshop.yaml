@@ -280,8 +280,10 @@ Resources:
           def handler(event, context):
             logger.info("Received event: %s" % json.dumps(event))
             if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-              endpoint = client.describe_endpoint()
+                endpoint = client.describe_endpoint(endpointType='iot:Data-ATS')
               responseData = { 'IotEndpointAddress': endpoint['endpointAddress'] }
+            else event['RequestType'] == 'Delete':
+              responseData = {}
 
             result = cfnresponse.SUCCESS
  
