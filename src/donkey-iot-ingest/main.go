@@ -29,7 +29,6 @@ var (
 
 func handler(ctx context.Context, request events.DynamoDBEvent) {
 	log.SetOutput(os.Stdout)
-	log.Infof("%v", request)
 
 	for _, r := range request.Records {
 		// we only care about new records
@@ -60,7 +59,14 @@ func handler(ctx context.Context, request events.DynamoDBEvent) {
 					Key:    aws.String(imageName),
 					Body:   bytes.NewReader(imageBytes),
 				})
-				log.Info(result)
+				if err != nil {
+					log.WithError(err).WithFields(log.Fields{
+						"Bucket": targetBucket,
+						"Key":    imageName,
+					}).Panic("Unable to upload image to S3")
+					return
+				}
+				log.Infof("Written image to %s/%s", targetBucket, imageName)
 				// write json file to S3
 				jsonName := fmt.Sprintf("record_%d.json", t.CurrentIX)
 				j := jsonRecord{
@@ -69,15 +75,25 @@ func handler(ctx context.Context, request events.DynamoDBEvent) {
 					UserThrottle:  t.UserThrottle,
 					UserAngle:     t.UserAngle,
 				}
+				log.Infof("json: %+v", j)
 				rawJson, err := json.Marshal(j)
 				if err != nil {
-					log.Errorln("Unable to create json record", err)
+					log.WithError(err).WithFields(log.Fields{
+						"Bucket": targetBucket,
+						"Key":    jsonName,
+					}).Panic("Unable to create json record")
 				} else {
 					result, err = uploader.Upload(&s3manager.UploadInput{
 						Bucket: aws.String(targetBucket),
 						Key:    aws.String(jsonName),
 						Body:   bytes.NewReader(rawJson),
 					})
+					if err != nil {
+						log.WithError(err).WithFields(log.Fields{
+							"Bucket": targetBucket,
+							"Key":    jsonName,
+						}).Panic("Unable to upload json record")
+					}
 					log.Info(result)
 				}
 			}
