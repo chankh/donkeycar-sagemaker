@@ -35,7 +35,9 @@ You will also need to have an AWS account to go through this workshop.
 Previously we would copy the data from the Pi to our Amazon EC2 instance. However with Amazon
 SageMaker, you don't need an Amazon EC2 instance. Instead the data will be pulled from Amazon S3. So
 let's first create our stack containing all required AWS resources by choosing one of the regions
-below.
+below. This diagram shows the architecture that will be created by our CloudFormation template.
+
+<img src="images/architecture.png">
 
 | Region | Launch Template |
 | ------------- | ------------- |
