@@ -68,6 +68,90 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
+  ReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBTelemetryTable
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  WriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10000
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBTelemetryTable
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:UpdateTable"
+                  - "cloudwatch:PutMetricAlarm"
+                  - "cloudwatch:DescribeAlarms"
+                  - "cloudwatch:GetMetricStatistics"
+                  - "cloudwatch:SetAlarmState"
+                  - "cloudwatch:DeleteAlarms"
+                Resource: "*"
+
+  ReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  WriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
   DonkeycarPolicy:
     Type: AWS::IoT::Policy
     Properties: 
@@ -81,12 +165,13 @@ Resources:
             Resource: 
               - "*"
 
-  IngestionLambda:
+  IngestionFunction:
     Type: AWS::Lambda::Function
     DependsOn: ImportCode
     Properties:
+      Description: Handles transformation of data ingested into DynamoDB
       Handler: donkey-iot-ingest
-      Role: !GetAtt IngestionLambdaRole.Arn
+      Role: !GetAtt IngestionFunctionRole.Arn
       Code:
         S3Bucket: !Ref LocalBucket
         S3Key: Archive.zip
@@ -96,7 +181,7 @@ Resources:
       Runtime: go1.x
       Timeout: 60
 
-  IngestionLambdaRole:
+  IngestionFunctionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -124,14 +209,14 @@ Resources:
                 Resource: "*"
               - Effect: Allow
                 Action: "s3:PutObject"
-                Resource: !GetAtt S3TelemetryData.Arn
+                Resource: !Join [ "/", [!GetAtt S3TelemetryData.Arn, "*"]]
 
-  IngestionLambdaSource:
+  IngestionFunctionSource:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       Enabled: true
       EventSourceArn: !GetAtt DynamoDBTelemetryTable.StreamArn
-      FunctionName: !Ref IngestionLambda
+      FunctionName: !Ref IngestionFunction
       StartingPosition: TRIM_HORIZON
 
   S3TelemetryData:
@@ -280,9 +365,9 @@ Resources:
           def handler(event, context):
             logger.info("Received event: %s" % json.dumps(event))
             if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                endpoint = client.describe_endpoint(endpointType='iot:Data-ATS')
+              endpoint = client.describe_endpoint(endpointType='iot:Data-ATS')
               responseData = { 'IotEndpointAddress': endpoint['endpointAddress'] }
-            else event['RequestType'] == 'Delete':
+            else:
               responseData = {}
 
             result = cfnresponse.SUCCESS
@@ -350,6 +435,21 @@ Resources:
                   - "s3:GetObject"
                   - "s3:PutObject"
                 Resource: !GetAtt S3TelemetryData.Arn
+
+  IotEndpointLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ["/", ["/aws", "lambda", !Ref IotEndpointFunction]]
+
+  IngestionFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ["/", ["/aws", "lambda", !Ref IngestionFunction]]
+
+  CopyS3ObjectsFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ["/", ["/aws", "lambda", !Ref CopyS3ObjectsFunction]]
 
 Outputs:
   IoTEndpointAddress:
