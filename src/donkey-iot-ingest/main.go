@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -15,6 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	log "github.com/sirupsen/logrus"
 )
+
+const meta = "{\"types\": [\"image_array\", \"float\", \"float\", \"str\"], \"inputs\": [\"cam/image_array\", \"user/angle\", \"user/throttle\", \"user/mode\"]}"
 
 var (
 	// Name of the S3 bucket to store data
@@ -25,6 +28,9 @@ var (
 
 	// S3 Uploader
 	uploader = s3manager.NewUploader(uploadSession)
+
+	t   = time.Now()
+	tub = fmt.Sprintf("tub_%d-%d-%d_%d%d", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute())
 )
 
 func handler(ctx context.Context, request events.DynamoDBEvent) {
@@ -53,7 +59,7 @@ func handler(ctx context.Context, request events.DynamoDBEvent) {
 				log.Errorln("Cannot decode base64 image", err)
 			} else {
 				// write image to S3
-				imageName := t.CamImageArray
+				imageName := fmt.Sprintf("%s/%s", tub, t.CamImageArray)
 				result, err := uploader.Upload(&s3manager.UploadInput{
 					Bucket: aws.String(targetBucket),
 					Key:    aws.String(imageName),
@@ -68,7 +74,7 @@ func handler(ctx context.Context, request events.DynamoDBEvent) {
 				}
 				log.Infof("Written image to %s/%s", targetBucket, imageName)
 				// write json file to S3
-				jsonName := fmt.Sprintf("record_%d.json", t.CurrentIX)
+				jsonName := fmt.Sprintf("%s/record_%d.json", tub, t.CurrentIX)
 				j := jsonRecord{
 					UserMode:      t.UserMode,
 					CamImageArray: t.CamImageArray,
@@ -101,7 +107,23 @@ func handler(ctx context.Context, request events.DynamoDBEvent) {
 	}
 }
 
+func generateMeta() {
+	key := fmt.Sprintf("%s/meta.json", tub)
+	_, err := uploader.Upload(&s3manager.UploadInput{
+		Bucket: aws.String(targetBucket),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader([]byte(meta)),
+	})
+	if err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"Bucket": targetBucket,
+			"Key":    key,
+		}).Panic("Unable to create metadata record")
+	}
+}
+
 func main() {
+	generateMeta()
 	lambda.Start(handler)
 }
 
