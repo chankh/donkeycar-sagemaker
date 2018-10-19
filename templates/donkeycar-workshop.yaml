@@ -413,6 +413,7 @@ Resources:
   NotebookRole:
     Type: AWS::IAM::Role
     Properties:
+      Path: /service-role/
       AssumeRolePolicyDocument: 
         Version: "2012-10-17"
         Statement: 
@@ -429,12 +430,15 @@ Resources:
           PolicyDocument: 
             Version: "2012-10-17"
             Statement: 
-              - 
-                Effect: "Allow"
+              - Effect: "Allow"
                 Action:
                   - "s3:GetObject"
                   - "s3:PutObject"
-                Resource: !GetAtt S3TelemetryData.Arn
+                Resource: !Join [ "/", [!GetAtt S3TelemetryData.Arn, "*"]]
+              - Effect: "Allow"
+                Action:
+                  - "iam:GetRole"
+                Resource: "*"
 
   IotEndpointLogs:
     Type: AWS::Logs::LogGroup
