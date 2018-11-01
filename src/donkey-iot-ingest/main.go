@@ -23,6 +23,9 @@ var (
 	// Name of the S3 bucket to store data
 	targetBucket = os.Getenv("TARGET_BUCKET")
 
+	// Optional prefix for data stored in S3
+	s3Prefix = os.Getenv("S3_PREFIX")
+
 	// AWS Session for uploading split files into a different AWS Region
 	uploadSession = session.Must(session.NewSession())
 
@@ -30,7 +33,7 @@ var (
 	uploader = s3manager.NewUploader(uploadSession)
 
 	t   = time.Now()
-	tub = fmt.Sprintf("tub_%d-%d-%d_%d%d", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute())
+	tub = fmt.Sprintf("%stub_%d-%d-%d_%d%d", s3Prefix, t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute())
 )
 
 func handler(ctx context.Context, request events.DynamoDBEvent) {

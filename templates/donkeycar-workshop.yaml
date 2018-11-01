@@ -178,6 +178,7 @@ Resources:
       Environment:
         Variables:
           TARGET_BUCKET: !Ref S3TelemetryData
+          S3_PREFIX: "input/"
       Runtime: go1.x
       Timeout: 60
 
